@@ -24,6 +24,9 @@ else
   ipfs init $INIT_ARGS
   ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
   ipfs config Addresses.Gateway /ip4/0.0.0.0/tcp/8080
+  ipfs bootstrap rm --all
+  ipfs bootstrap add $IPFS_cons01
+  ipfs bootstrap add $IPFS_cons02
 
   # Set up the swarm key, if provided
 
