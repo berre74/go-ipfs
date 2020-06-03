@@ -88,6 +88,8 @@ RUN mkdir -p $IPFS_PATH \
   && adduser -D -h $IPFS_PATH -u 1000 -G users ipfs \
   && chown ipfs:users $IPFS_PATH
 
+COPY swarm.key /data/ipfs
+
 # Create mount points for `ipfs mount` command
 RUN mkdir /ipfs /ipns \
   && chown ipfs:users /ipfs /ipns
