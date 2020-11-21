@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +136,7 @@ func newTestServerAndNode(t *testing.T, ns mockNamesys) (*httptest.Server, iface
 	// listener, and server with handler. yay cycles.
 	dh := &delegatedHandler{}
 	ts := httptest.NewServer(dh)
+	t.Cleanup(func() { ts.Close() })
 
 	dh.Handler, err = makeHandler(n,
 		ts.Listener,
@@ -154,10 +156,14 @@ func newTestServerAndNode(t *testing.T, ns mockNamesys) (*httptest.Server, iface
 	return ts, api, n.Context()
 }
 
+func matchPathOrBreadcrumbs(s string, expected string) bool {
+	matched, _ := regexp.MatchString("Index of\n[\t ]*"+regexp.QuoteMeta(expected), s)
+	return matched
+}
+
 func TestGatewayGet(t *testing.T) {
 	ns := mockNamesys{}
 	ts, api, ctx := newTestServerAndNode(t, ns)
-	defer ts.Close()
 
 	k, err := api.Unixfs().Add(ctx, files.NewBytesFile([]byte("fnord")))
 	if err != nil {
@@ -238,7 +244,6 @@ func TestGatewayGet(t *testing.T) {
 func TestPretty404(t *testing.T) {
 	ns := mockNamesys{}
 	ts, api, ctx := newTestServerAndNode(t, ns)
-	defer ts.Close()
 
 	f1 := files.NewMapDirectory(map[string]files.Node{
 		"ipfs-404.html": files.NewBytesFile([]byte("Custom 404")),
@@ -303,7 +308,6 @@ func TestIPNSHostnameRedirect(t *testing.T) {
 	ns := mockNamesys{}
 	ts, api, ctx := newTestServerAndNode(t, ns)
 	t.Logf("test server url: %s", ts.URL)
-	defer ts.Close()
 
 	// create /ipns/example.net/foo/index.html
 
@@ -387,11 +391,14 @@ func TestIPNSHostnameRedirect(t *testing.T) {
 	}
 }
 
+// Test directory listing on DNSLink website
+// (scenario when Host header is the same as URL hostname)
+// This is basic regression test: additional end-to-end tests
+// can be found in test/sharness/t0115-gateway-dir-listing.sh
 func TestIPNSHostnameBacklinks(t *testing.T) {
 	ns := mockNamesys{}
 	ts, api, ctx := newTestServerAndNode(t, ns)
 	t.Logf("test server url: %s", ts.URL)
-	defer ts.Close()
 
 	f1 := files.NewMapDirectory(map[string]files.Node{
 		"file.txt": files.NewBytesFile([]byte("1")),
@@ -434,7 +441,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// expect correct backlinks
+	// expect correct links
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		t.Fatalf("error reading response: %s", err)
@@ -442,7 +449,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	s := string(body)
 	t.Logf("body: %s\n", string(body))
 
-	if !strings.Contains(s, "Index of /ipns/example.net/foo? #&lt;&#39;/") {
+	if !matchPathOrBreadcrumbs(s, "/ipns/<a href=\"//example.net/\">example.net</a>/<a href=\"//example.net/foo%3F%20%23%3C%27\">foo? #&lt;&#39;</a>") {
 		t.Fatalf("expected a path in directory listing")
 	}
 	if !strings.Contains(s, "<a href=\"/foo%3F%20%23%3C%27/./..\">") {
@@ -450,6 +457,10 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	}
 	if !strings.Contains(s, "<a href=\"/foo%3F%20%23%3C%27/file.txt\">") {
 		t.Fatalf("expected file in directory listing")
+	}
+	if !strings.Contains(s, "<a class=\"ipfs-hash\" href=\"https://cid.ipfs.io/#") {
+		// https://github.com/ipfs/dir-index-html/issues/42
+		t.Fatalf("expected links to cid.ipfs.io in CID column when on DNSLink website")
 	}
 	if !strings.Contains(s, k2.Cid().String()) {
 		t.Fatalf("expected hash in directory listing")
@@ -475,7 +486,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	s = string(body)
 	t.Logf("body: %s\n", string(body))
 
-	if !strings.Contains(s, "Index of /") {
+	if !matchPathOrBreadcrumbs(s, "/") {
 		t.Fatalf("expected a path in directory listing")
 	}
 	if !strings.Contains(s, "<a href=\"/\">") {
@@ -483,6 +494,10 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	}
 	if !strings.Contains(s, "<a href=\"/file.txt\">") {
 		t.Fatalf("expected file in directory listing")
+	}
+	if !strings.Contains(s, "<a class=\"ipfs-hash\" href=\"https://cid.ipfs.io/#") {
+		// https://github.com/ipfs/dir-index-html/issues/42
+		t.Fatalf("expected links to cid.ipfs.io in CID column when on DNSLink website")
 	}
 	if !strings.Contains(s, k.Cid().String()) {
 		t.Fatalf("expected hash in directory listing")
@@ -508,7 +523,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	s = string(body)
 	t.Logf("body: %s\n", string(body))
 
-	if !strings.Contains(s, "Index of /ipns/example.net/foo? #&lt;&#39;/bar/") {
+	if !matchPathOrBreadcrumbs(s, "/ipns/<a href=\"//example.net/\">example.net</a>/<a href=\"//example.net/foo%3F%20%23%3C%27\">foo? #&lt;&#39;</a>/<a href=\"//example.net/foo%3F%20%23%3C%27/bar\">bar</a>") {
 		t.Fatalf("expected a path in directory listing")
 	}
 	if !strings.Contains(s, "<a href=\"/foo%3F%20%23%3C%27/bar/./..\">") {
@@ -542,7 +557,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	s = string(body)
 	t.Logf("body: %s\n", string(body))
 
-	if !strings.Contains(s, "Index of /ipns/example.net") {
+	if !matchPathOrBreadcrumbs(s, "/ipns/<a href=\"//example.net/\">example.net</a>") {
 		t.Fatalf("expected a path in directory listing")
 	}
 	if !strings.Contains(s, "<a href=\"/good-prefix/\">") {
@@ -584,7 +599,7 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 	s = string(body)
 	t.Logf("body: %s\n", string(body))
 
-	if !strings.Contains(s, "Index of /") {
+	if !matchPathOrBreadcrumbs(s, "/") {
 		t.Fatalf("expected a path in directory listing")
 	}
 	if !strings.Contains(s, "<a href=\"/\">") {
@@ -601,7 +616,6 @@ func TestIPNSHostnameBacklinks(t *testing.T) {
 func TestCacheControlImmutable(t *testing.T) {
 	ts, _, _ := newTestServerAndNode(t, nil)
 	t.Logf("test server url: %s", ts.URL)
-	defer ts.Close()
 
 	req, err := http.NewRequest(http.MethodGet, ts.URL+emptyDir+"/", nil)
 	if err != nil {
@@ -627,7 +641,6 @@ func TestCacheControlImmutable(t *testing.T) {
 func TestGoGetSupport(t *testing.T) {
 	ts, _, _ := newTestServerAndNode(t, nil)
 	t.Logf("test server url: %s", ts.URL)
-	defer ts.Close()
 
 	// mimic go-get
 	req, err := http.NewRequest(http.MethodGet, ts.URL+emptyDir+"?go-get=1", nil)
@@ -651,7 +664,6 @@ func TestVersion(t *testing.T) {
 	ns := mockNamesys{}
 	ts, _, _ := newTestServerAndNode(t, ns)
 	t.Logf("test server url: %s", ts.URL)
-	defer ts.Close()
 
 	req, err := http.NewRequest(http.MethodGet, ts.URL+"/version", nil)
 	if err != nil {
