@@ -76,7 +76,7 @@ func (api *NameAPI) Publish(ctx context.Context, p path.Path, opts ...caopts.Nam
 	}
 
 	return &ipnsEntry{
-		name:  pid.Pretty(),
+		name:  coreiface.FormatKeyID(pid),
 		value: p,
 	}, nil
 }
@@ -120,6 +120,9 @@ func (api *NameAPI) Search(ctx context.Context, name string, opts ...caopts.Name
 // Resolve attempts to resolve the newest version of the specified name and
 // returns its path.
 func (api *NameAPI) Resolve(ctx context.Context, name string, opts ...caopts.NameResolveOption) (path.Path, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	results, err := api.Search(ctx, name, opts...)
 	if err != nil {
 		return nil, err
