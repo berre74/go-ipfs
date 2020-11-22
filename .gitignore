@@ -1,4 +1,5 @@
 swarm.key
+module.json
 
 # ipfs can generate profiling dump files
 *.cpuprof
